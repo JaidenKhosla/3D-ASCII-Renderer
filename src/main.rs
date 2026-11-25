@@ -1,4 +1,4 @@
-use std::{cell::RefCell, io::Write, sync::{LazyLock, Mutex}, rc::Rc, time::Duration, cell::Ref};
+use std::{cell::{Ref, RefCell}, f32::consts::PI, io::Write, rc::Rc, sync::{LazyLock, Mutex}, time::{Duration, Instant}};
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
@@ -71,6 +71,8 @@ impl Color
 }
 
 struct Vec2 { x: f32, y: f32}
+
+#[derive(Clone, Copy)]
 struct Vec3 { x: f32, y: f32, z: f32}
 
 impl Vec3
@@ -99,9 +101,9 @@ impl Vec3
         Vec3 { x: self.x*cos - self.y*sin, y: self.x*sin + self.y*cos, z: self.z}
     }
 
-    fn project(&self) -> Vec2
+    fn project(&self) -> Vec3
     {
-        Vec2 { x: (self.x/self.z + T_COLS as f32 / 2.0).round(), y: (self.y/self.z + T_ROWS as f32 / 2.0).round() }
+        Vec3 { x: (self.x/self.z + T_COLS as f32 / 2.0).round(), y: (self.y/self.z + T_ROWS as f32 / 2.0).round(), z: self.z.round() }
     }
 
     fn translate(&self, dx: f32, dy: f32, dz: f32) -> Vec3
@@ -128,25 +130,14 @@ impl Vec3
 type Triangle = [usize; 3];
 struct Mesh
 {
-    vertices: [Vec3; 8],
-    triangles: [Triangle; 12],
-    colors: [Color; 12],
-    symbols: [char; 12],
+    vertices: Vec<Vec3>,
+    triangles: Vec<Triangle>,
+    colors: Vec<Color>,
+    symbols: Vec<char>,
 
     translation: [f32; 3],
     rotation: [f32; 3],
     scale: [f32; 3]
-}
-
-impl Mesh
-{
-    fn update_rotation(&mut self)
-    {
-        self.rotation[0] += 0.05;
-        self.rotation[1] += 0.05;
-        self.rotation[2] += 0.05;
-    }
-
 }
 
 struct Renderer
@@ -181,7 +172,7 @@ impl Renderer
             let sym = mesh.symbols[triangle_idx];
             let color = mesh.colors[triangle_idx];
 
-            let modified_triangle = triangle.map(|idx| mesh.vertices[idx].rotate_x(mesh.rotation[0]).rotate_y(mesh.rotation[1]).rotate_z(mesh.rotation[2]).translate(0.0, 0.0, 8.0).scale(72.0, 24.0, 1.0));
+            let modified_triangle = triangle.map(|idx| mesh.vertices[idx].rotate_x(mesh.rotation[0]).rotate_y(mesh.rotation[1]).rotate_z(mesh.rotation[2]).translate(mesh.translation[0], mesh.translation[1], mesh.translation[2] + 8.0).scale(72.0*mesh.scale[0], 24.0*mesh.scale[1], 1.0*mesh.scale[2]));
             
             let d0 = Vec3 { x: modified_triangle[1].x - modified_triangle[0].x, y: modified_triangle[1].y - modified_triangle[0].y, z: modified_triangle[1].z - modified_triangle[0].z};
             let d1 = Vec3 { x: modified_triangle[2].x - modified_triangle[0].x, y: modified_triangle[2].y - modified_triangle[0].y, z: modified_triangle[2].z - modified_triangle[0].z};
@@ -189,11 +180,11 @@ impl Renderer
             let cross = Vec3::cross_product(&d0, &d1);
             let camera_dot = Vec3::dot_product(&cross, &CAMERA_POS);
 
-            //back face culling
-            if camera_dot >= 0.0
-            {
-                continue;
-            }
+            // //back face culling
+            // if camera_dot >= 0.0
+            // {
+            //     continue;
+            // }
 
 
             let [projected_vec0, projected_vec1, projected_vec2] = modified_triangle.map(|vec_i| vec_i.project());
@@ -206,12 +197,12 @@ impl Renderer
     {
         for x in x1.min(x2)..=x1.max(x2)
         {
-            self.write_to_buffer(y, x, sym, color);
+            self.write_to_buffer(y, x, 0.0, sym, color);
         }
     }
 
 
-    fn draw_flat_bottom_triangle(&mut self, top: &Vec2, b1: &Vec2, b2: &Vec2, sym: char, color: Color)
+    fn draw_flat_bottom_triangle(&mut self, top: &Vec3, b1: &Vec3, b2: &Vec3, sym: char, color: Color)
     {
         let slope1 = (top.x - b1.x)/(top.y - b1.y);
         let slope2 = (top.x - b2.x)/(top.y - b2.y);
@@ -230,7 +221,7 @@ impl Renderer
         }
     }
 
-    fn draw_flat_top_triangle(&mut self, bottom: &Vec2, t1: &Vec2, t2: &Vec2, sym: char, color: Color)
+    fn draw_flat_top_triangle(&mut self, bottom: &Vec3, t1: &Vec3, t2: &Vec3, sym: char, color: Color)
     {  
         let slope1 = (bottom.x - t1.x)/(bottom.y - t1.y);
         let slope2 = (bottom.x - t2.x)/(bottom.y - t2.y);
@@ -254,7 +245,7 @@ impl Renderer
         }
     }
 
-    fn draw_triangle(&mut self, a: &Vec2, b: &Vec2, c: &Vec2, sym: char, color: Color)
+    fn draw_triangle(&mut self, a: &Vec3, b: &Vec3, c: &Vec3, sym: char, color: Color)
     {
         let mut vertices = [a,b,c];
 
@@ -274,21 +265,26 @@ impl Renderer
             return;
         }
 
-        let midpoint = Vec2 { x: vec_a.x + (vec_c.x - vec_a.x)*(vec_b.y - vec_a.y)/(vec_c.y - vec_a.y), y: vec_b.y};
+        let dx = (vec_c.x - vec_a.x)*(vec_b.y - vec_a.y)/(vec_c.y - vec_a.y);
+        let dz_dx = (vec_c.z - vec_a.z)/(vec_c.x - vec_a.x);
+
+        let midpoint = Vec3 { x: vec_a.x + dx , y: vec_b.y, z: vec_a.z + dz_dx * dx};
 
         self.draw_flat_top_triangle(&vec_c, &midpoint, &vec_b, sym, color);
         self.draw_flat_bottom_triangle(&vec_a, &midpoint, &vec_b, sym, color);
     }
 
-    fn write_to_buffer(&mut self, r: usize, c: usize, sym: char, color: Color)
+    fn write_to_buffer(&mut self, r: usize, c: usize, z: f32, sym: char, color: Color)
     {
         
+        let inv_z = 1.0/z;
         let index = HEADER_SIZE + r*(T_COLS + 1) + c;
-        if index >= BUFFER_SIZE
+        if index >= BUFFER_SIZE || inv_z < self.depth_buffer[index]
         {
             return;
         } 
-
+        
+        self.depth_buffer[index] = inv_z;
         self.character_buffer[index] = sym;
         self.color_buffer[index] = color;
     }
@@ -332,7 +328,33 @@ impl Renderer
     }
 }
 
+struct FPSManager 
+{
+    target_fps: u32,
+    last_frame: Instant,
+    target_time: Duration
+}
 
+impl FPSManager
+{
+    fn get_deltatime(&mut self) -> f32
+    {
+        let delta = self.last_frame.elapsed();
+        
+        
+        if let Some(sleep) = self.target_time.checked_sub(delta)
+        {
+            std::thread::sleep(sleep);
+        }
+        
+        let elapsed = self.last_frame.elapsed().as_secs_f32();
+        self.last_frame = Instant::now();
+
+        elapsed
+
+    
+    }
+}
 
 const T_ROWS: usize = 36;
 const T_COLS: usize = 165;
@@ -354,7 +376,10 @@ const BUFFER_SIZE: usize = T_ROWS *(T_COLS + 1) + HEADER_SIZE;
 //     Mutex::new([0.0; BUFFER_SIZE])
 // });
 
-// const FPS: u32 = 60;
+const FPS: u32 = 60;
+
+static FPS_MANAGER: LazyLock<Mutex<FPSManager>> = LazyLock::new(|| Mutex::new(FPSManager { target_fps: FPS, last_frame: Instant::now(), target_time: Duration::from_secs_f32(1.0/FPS as f32) }));
+
 
 const CAMERA_POS: Vec3 = Vec3 { x: 0.0, y: 0.0, z: 1.0};
 
@@ -362,7 +387,7 @@ const CAMERA_POS: Vec3 = Vec3 { x: 0.0, y: 0.0, z: 1.0};
 
 fn main() {
     
-    let mut MAIN_CUBE: Mesh = Mesh {
+    let main_cube: Mesh = Mesh {
         vertices: [
             Vec3 { x: -1.0, y: -1.0, z: -1.0},
             Vec3 { x: -1.0, y: 1.0, z: -1.0},
@@ -372,7 +397,7 @@ fn main() {
             Vec3 { x: 1.0, y: -1.0, z: 1.0},
             Vec3 { x: -1.0, y: -1.0, z: 1.0},
             Vec3 { x: -1.0, y: 1.0, z: 1.0}
-        ],
+        ].to_vec(),
     
         triangles: [
             [0, 1, 2],
@@ -387,26 +412,55 @@ fn main() {
             [6, 3, 5],
             [1, 7, 4],
             [1, 4, 2]
-        ],
+        ].to_vec(),
     
-        colors: [ Color::RGB(255,0,0), Color::RGB(255,0,0), Color::Blue, Color::Blue, Color::Green, Color::Green, Color::Yellow, Color::Yellow, Color::Magenta, Color::Magenta, Color::Cyan, Color::Cyan],
+        colors: [ Color::RGB(255,0,0), Color::RGB(255,0,0), Color::Blue, Color::Blue, Color::Green, Color::Green, Color::Yellow, Color::Yellow, Color::Magenta, Color::Magenta, Color::Cyan, Color::Cyan].to_vec(),
     
-        symbols: ['@', '@', '#', '#', '$', '$', '%', '%', '&', '&', '*', '*'],
+        symbols: ['@', '@', '#', '#', '$', '$', '%', '%', '&', '&', '*', '*'].to_vec(),
     
         translation: [0.0,0.0,0.0],
         rotation: [0.0, 0.0, 0.0],
         scale: [1.0, 1.0, 1.0]
     };
+
+    let main_pyramid = Mesh {
+        vertices: [
+            Vec3 { x: -1.0, y: -1.0, z: -1.0 },
+            Vec3 { x: 1.0, y: -1.0, z: -1.0},
+            Vec3 { x: -1.0, y: -1.0, z: 1.0},
+            Vec3 { x: 1.0, y: -1.0, z: 1.0},
+            Vec3 { x: 0.0, y: 1.0, z: 0.0}
+        ].to_vec(),
+
+        triangles: [
+            [0, 1, 2],
+            [1, 2, 3],
+            [0, 1, 4],
+            [0, 2, 4],
+            [2, 3, 4],
+            [1, 3, 4]
+        ].to_vec(),
+
+        colors: [ Color::Blue, Color::Blue, Color::Green, Color::Yellow, Color::Red, Color::Magenta].to_vec(),
+
+        symbols: [ '@', '@', '#', '$', '%', '&'].to_vec(),
+
+        translation: [0.0; 3],
+        rotation: [0.0; 3],
+        scale: [1.0; 3]
+    };
     
-    print!("\x1b[2J\x1b[3J"); //clears screen
+    print!("\x1b[2J\x1b[3J\x1b[?25l"); //clears screen
     std::io::stdout().flush().unwrap();
     
     let mut renderer = Renderer::new();
-
-    let idx = renderer.add_mesh(MAIN_CUBE);
+    
+    let idx = renderer.add_mesh(main_pyramid);
     
     loop
     {
+        let delta = FPS_MANAGER.lock().unwrap().get_deltatime();
+
         print!("\x1b[3J");
         std::io::stdout().flush().unwrap();
         // draw_flat_bottom_triangle(&Vec2{ x: 5.0, y: 0.0},&Vec2{ x: 0.0, y: 5.0}, &Vec2{ x: 10.0, y: 5.0});
@@ -415,11 +469,10 @@ fn main() {
         
         renderer.render();
         renderer.flush_buffer();
-        std::thread::sleep(Duration::from_millis(500));
         
         let mut cube = renderer.meshes[idx].borrow_mut();
 
-        cube.update_rotation();
+        cube.rotation[0] += PI/8.0 * delta;
 
     }
 }

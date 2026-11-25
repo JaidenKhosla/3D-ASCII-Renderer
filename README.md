@@ -1,9 +1,9 @@
 TO DO:
 
 * Add dynamic centering based on terminal dimensions.
-* Frame Rate
+* ~~Frame Rate~~
 * Donut Mesh
-* Render Struct
+* ~~Render Struct~~
 * Custom Meshes
 * Z-Buffer
 * Add camera movement
