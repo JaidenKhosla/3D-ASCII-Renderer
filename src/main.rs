@@ -1,5 +1,67 @@
 use std::{f32::consts::PI, io::Write, string, sync::{LazyLock, Mutex}, time::Duration};
 
+#[repr(u8)]
+#[derive(Clone, Copy)]
+enum Color
+{
+    Color(u8),
+
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan, 
+    White,
+
+    BrightBlack,
+    BrightRed,
+    BrightGreen,
+    BrightYellow,
+    BrightBlue,
+    BrightMagenta,
+    BrightCyan,
+    BrightWhite,
+
+    Reset
+}
+
+impl Color
+{
+    fn id(&self) -> u8
+    {
+        match self
+        {
+            Color::Color(code) => *code, 
+            Color::Black => 30,
+            Color::Red => 31,
+            Color::Green => 32,
+            Color::Yellow => 33,
+            Color::Blue => 34,
+            Color::Magenta => 35,
+            Color::Cyan => 36,
+            Color::White => 37,
+
+            Color::BrightBlack => 90,
+            Color::BrightRed => 91,
+            Color::BrightGreen => 92,
+            Color::BrightYellow => 93,
+            Color::BrightBlue => 94,
+            Color::BrightMagenta => 95,
+            Color::BrightCyan => 96,
+            Color::BrightWhite => 97,
+
+            _ => 0
+        }
+    }
+
+    fn get_ansii_code(&self) -> String
+    {
+        format!("\x1b[{}m", self.id())
+    }
+}
+
 struct Vec2 { x: f32, y: f32}
 struct Vec3 { x: f32, y: f32, z: f32}
 
@@ -66,8 +128,12 @@ const BUFFER_SIZE: usize = T_ROWS *(T_COLS + 1) + HEADER_SIZE;
 
 
 
-static BUFFER: LazyLock<Mutex<[char; BUFFER_SIZE]>> = LazyLock::new(||{
+static BUFFER: LazyLock<Mutex<[char; BUFFER_SIZE]>> = LazyLock::new(|| {
     Mutex::new([' '; BUFFER_SIZE])
+});
+
+static COLOR_BUFFER: LazyLock<Mutex<[Color; BUFFER_SIZE]>> = LazyLock::new(|| {
+    Mutex::new([Color::Red; BUFFER_SIZE])
 });
 
 static DEPTH_BUFFER: LazyLock<Mutex<[f32; BUFFER_SIZE]>> = LazyLock::new(||{
@@ -220,17 +286,25 @@ fn draw_triangle(a: &Vec2, b: &Vec2, c: &Vec2, sym: char)
 fn flush_buffer()
 {
     let mut buffer =  BUFFER.lock().unwrap();
+    let mut color_buffer = COLOR_BUFFER.lock().unwrap();
+
     for i in 0..T_ROWS
     {
         buffer[HEADER_SIZE + i*(T_COLS + 1) + T_COLS] = '\n';
     }
     
-    let output = buffer.iter().collect::<String>();
 
 
-    let mut stdOut = std::io::stdout();
-    write!(stdOut, "{}", output).unwrap();
-    stdOut.flush().unwrap();
+    let header_output = buffer[0..HEADER_SIZE].iter().collect::<String>();
+
+    let meshed_output = color_buffer[HEADER_SIZE..].iter().zip(buffer[HEADER_SIZE..].iter()).map(|(color, c)| color.get_ansii_code() + &c.to_string()).collect::<String>();
+
+    let output = header_output + &meshed_output;
+
+
+    let mut std_out = std::io::stdout();
+    write!(std_out, "{}", output).unwrap();
+    std_out.flush().unwrap();
 
     buffer[HEADER_SIZE..BUFFER_SIZE].fill(' ');
 }
