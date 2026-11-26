@@ -103,7 +103,7 @@ impl Vec3
 
     fn project(&self) -> Vec3
     {
-        Vec3 { x: (self.x/self.z + T_COLS as f32 / 2.0).round(), y: (self.y/self.z + T_ROWS as f32 / 2.0).round(), z: self.z.round() }
+        Vec3 { x: (self.x/self.z + T_COLS as f32 / 2.0).round(), y: (self.y/self.z + T_ROWS as f32 / 2.0).round(), z: self.z }
     }
 
     fn translate(&self, dx: f32, dy: f32, dz: f32) -> Vec3
@@ -180,11 +180,11 @@ impl Renderer
             let cross = Vec3::cross_product(&d0, &d1);
             let camera_dot = Vec3::dot_product(&cross, &CAMERA_POS);
 
-            // //back face culling
-            // if camera_dot >= 0.0
-            // {
-            //     continue;
-            // }
+            // back face culling
+            if camera_dot >= 0.0
+            {
+                continue;
+            }
 
 
             let [projected_vec0, projected_vec1, projected_vec2] = modified_triangle.map(|vec_i| vec_i.project());
@@ -193,11 +193,18 @@ impl Renderer
         }
     }
 
-    fn draw_line(&mut self, x1: usize, x2: usize, y: usize, sym: char, color: Color)
+    fn draw_line(&mut self, x1: usize, x2: usize, y: usize, z: f32, dz_dx: f32, sym: char, color: Color)
     {
-        for x in x1.min(x2)..=x1.max(x2)
+        let min = x1.min(x2);
+        let max = x1.max(x2);
+
+        for x in min..=max
         {
-            self.write_to_buffer(y, x, 0.0, sym, color);
+            let dx = x - min;
+
+            let new_z = z + dz_dx * (dx as f32);
+
+            self.write_to_buffer(y, x, new_z, sym, color);
         }
     }
 
@@ -209,13 +216,22 @@ impl Renderer
 
         let delta_y = (b1.y - top.y).round() as usize;
 
+        let dz_dx = (b1.z - b2.z)/(b1.x - b2.x);
+        let dz_dy = (top.z - b2.z)/(top.y - b2.y);
+
         let mut x1 = top.x;
         let mut x2 = top.x;
 
+        let mut z = top.z; 
+
+
         for y in 0..=delta_y
         {
-            self.draw_line(x1.round() as usize, x2.round() as usize, top.y.round() as usize + y, sym, color);
+            let starting_z = z + (x1.min(x2) - x2) * dz_dx;
 
+            self.draw_line(x1.round() as usize, x2.round() as usize, top.y.round() as usize + y, starting_z, dz_dx, sym, color);
+
+            z += dz_dy;
             x1 += slope1;
             x2 += slope2;
         }
@@ -228,20 +244,29 @@ impl Renderer
 
         let delta_y = (bottom.y - t1.y).round() as usize;
         
+        let dz_dx = (t1.z - t2.z)/(t1.x - t2.x);
+        let dz_dy = (bottom.z - t2.z)/(bottom.y - t2.y);
+
         let mut x1 = bottom.x;
         let mut x2 = bottom.x;
 
+        let mut z = bottom.z;
+
         for y in 0..=delta_y
         {
+            let starting_z = z + (x1.min(x2) - x2) * dz_dx;
+
             let y_level = bottom.y.round() as i32 - y as i32;
 
             if y_level >= 0
             {
-                self.draw_line(x1.round() as usize, x2.round() as usize, y_level as usize, sym, color);
+                self.draw_line(x1.round() as usize, x2.round() as usize, y_level as usize, starting_z, dz_dx, sym, color);
             }
 
+            z -= dz_dy;
             x1 -= slope1;
             x2 -= slope2;
+
         }
     }
 
@@ -277,14 +302,21 @@ impl Renderer
     fn write_to_buffer(&mut self, r: usize, c: usize, z: f32, sym: char, color: Color)
     {
         
-        let inv_z = 1.0/z;
         let index = HEADER_SIZE + r*(T_COLS + 1) + c;
-        if index >= BUFFER_SIZE || inv_z < self.depth_buffer[index]
+        if index >= BUFFER_SIZE // || !z.is_finite() || z <= 0.0
         {
             return;
         } 
+
+        // let inv_z = 1.0/z;
+
+        // if inv_z < self.depth_buffer[index]
+        // {
+        //     return;
+        // }
+
         
-        self.depth_buffer[index] = inv_z;
+        // self.depth_buffer[index] = inv_z.abs();
         self.character_buffer[index] = sym;
         self.color_buffer[index] = color;
     }
@@ -309,6 +341,7 @@ impl Renderer
 
         self.character_buffer[HEADER_SIZE..].fill(' ');
         self.color_buffer[HEADER_SIZE..].fill(Color::Reset);
+        self.depth_buffer[HEADER_SIZE..].fill(0.0);
     }
 
     fn add_mesh(&mut self, mesh: Mesh) -> usize
@@ -422,30 +455,29 @@ fn main() {
         rotation: [0.0, 0.0, 0.0],
         scale: [1.0, 1.0, 1.0]
     };
-
     let main_pyramid = Mesh {
         vertices: [
-            Vec3 { x: -1.0, y: -1.0, z: -1.0 },
-            Vec3 { x: 1.0, y: -1.0, z: -1.0},
-            Vec3 { x: -1.0, y: -1.0, z: 1.0},
-            Vec3 { x: 1.0, y: -1.0, z: 1.0},
-            Vec3 { x: 0.0, y: 1.0, z: 0.0}
+            Vec3 { x: -1.0, y: 1.0, z: -1.0 },
+            Vec3 { x: 1.0, y: 1.0, z: -1.0},
+            Vec3 { x: -1.0, y: 1.0, z: 1.0},
+            Vec3 { x: 1.0, y: 1.0, z: 1.0},
+            Vec3 { x: 0.0, y: -1.0, z: 0.0}
         ].to_vec(),
 
         triangles: [
             [0, 1, 2],
-            [1, 2, 3],
-            [0, 1, 4],
+            [1, 3, 2],
+            [0, 4, 1],
             [0, 2, 4],
             [2, 3, 4],
-            [1, 3, 4]
+            [1, 4, 3]
         ].to_vec(),
 
         colors: [ Color::Blue, Color::Blue, Color::Green, Color::Yellow, Color::Red, Color::Magenta].to_vec(),
 
         symbols: [ '@', '@', '#', '$', '%', '&'].to_vec(),
 
-        translation: [0.0; 3],
+        translation: [0.0, 4.0, 0.0],
         rotation: [0.0; 3],
         scale: [1.0; 3]
     };
@@ -455,8 +487,11 @@ fn main() {
     
     let mut renderer = Renderer::new();
     
-    let idx = renderer.add_mesh(main_pyramid);
+    let cube_idx = renderer.add_mesh(main_cube);
+    let pyramid_idx = renderer.add_mesh(main_pyramid);
     
+    static FULL_ROTATION: f32 = PI*2.0;
+
     loop
     {
         let delta = FPS_MANAGER.lock().unwrap().get_deltatime();
@@ -470,9 +505,23 @@ fn main() {
         renderer.render();
         renderer.flush_buffer();
         
-        let mut cube = renderer.meshes[idx].borrow_mut();
+        let mut cube = renderer.meshes[cube_idx].borrow_mut();
+        let mut pyramid = renderer.meshes[pyramid_idx].borrow_mut();
 
-        cube.rotation[0] += PI/8.0 * delta;
+
+        let angle_update = PI/8.0 * delta;
+
+        cube.rotation[0] = (cube.rotation[0] + angle_update)%FULL_ROTATION;
+        cube.rotation[1] = (cube.rotation[1] + angle_update)%FULL_ROTATION;
+        cube.rotation[2] = (cube.rotation[2] + angle_update)%FULL_ROTATION;
+        
+        // pyramid.rotation[0] = (pyramid.rotation[0] + angle_update)%FULL_ROTATION;
+        // pyramid.rotation[1] = (pyramid.rotation[1] + angle_update)%FULL_ROTATION;
+        pyramid.rotation[0] = (pyramid.rotation[0] + 2.0*angle_update)%FULL_ROTATION;
+        // cube.rotation[1] += PI/8.0*delta;
+        // cube.rotation[2] += PI/8.0*delta;
+
+
 
     }
 }

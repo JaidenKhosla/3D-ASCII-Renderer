@@ -5,5 +5,6 @@ TO DO:
 * Donut Mesh
 * ~~Render Struct~~
 * Custom Meshes
-* Z-Buffer
+* Z-Buffer (FIXING MY HORRENDOUS CALCULATIONS FOR Z)
 * Add camera movement
+* Calculating normals
