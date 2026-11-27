@@ -70,7 +70,26 @@ impl Color
     }
 }
 
+#[derive(Clone, Copy)]
 struct Vec2 { x: f32, y: f32}
+
+impl Vec2
+{
+    fn cross_product(a: &Vec2, b: &Vec2) -> Vec2 
+    {
+        Vec2 { x: a.x * b.y, y: - a.y * b.x }
+    }
+
+    fn dot_product(a: &Vec2, b: &Vec2) -> f32
+    {
+        a.x * b.x + a.y * b.y
+    }
+
+    fn extend(&self, z: f32) -> Vec3
+    {
+        Vec3 { x: self.x, y: self.y, z }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Vec3 { x: f32, y: f32, z: f32}
@@ -101,9 +120,9 @@ impl Vec3
         Vec3 { x: self.x*cos - self.y*sin, y: self.x*sin + self.y*cos, z: self.z}
     }
 
-    fn project(&self) -> Vec3
+    fn project(&self) -> Vec2
     {
-        Vec3 { x: (self.x/self.z + T_COLS as f32 / 2.0).round(), y: (self.y/self.z + T_ROWS as f32 / 2.0).round(), z: self.z }
+        Vec2 { x: (self.x/self.z + T_COLS as f32 / 2.0).round(), y: (self.y/self.z + T_ROWS as f32 / 2.0).round() }
     }
 
     fn translate(&self, dx: f32, dy: f32, dz: f32) -> Vec3
@@ -174,20 +193,23 @@ impl Renderer
 
             let modified_triangle = triangle.map(|idx| mesh.vertices[idx].rotate_x(mesh.rotation[0]).rotate_y(mesh.rotation[1]).rotate_z(mesh.rotation[2]).translate(mesh.translation[0], mesh.translation[1], mesh.translation[2] + 8.0).scale(72.0*mesh.scale[0], 24.0*mesh.scale[1], 1.0*mesh.scale[2]));
             
+            let [projected_vec0, projected_vec1, projected_vec2] = modified_triangle.map(|vec_i| vec_i.project().extend(vec_i.z));
+            
             let d0 = Vec3 { x: modified_triangle[1].x - modified_triangle[0].x, y: modified_triangle[1].y - modified_triangle[0].y, z: modified_triangle[1].z - modified_triangle[0].z};
             let d1 = Vec3 { x: modified_triangle[2].x - modified_triangle[0].x, y: modified_triangle[2].y - modified_triangle[0].y, z: modified_triangle[2].z - modified_triangle[0].z};
             
+            let relative_camera_pos = Vec3 { x: CAMERA_POS.x - modified_triangle[0].x, y: CAMERA_POS.y - modified_triangle[0].y, z: CAMERA_POS.z - modified_triangle[0].z};
+
             let cross = Vec3::cross_product(&d0, &d1);
-            let camera_dot = Vec3::dot_product(&cross, &CAMERA_POS);
+            let camera_dot = Vec3::dot_product(&cross, &relative_camera_pos);
 
             // back face culling
-            if camera_dot >= 0.0
+            if camera_dot > 0.0
             {
                 continue;
             }
 
 
-            let [projected_vec0, projected_vec1, projected_vec2] = modified_triangle.map(|vec_i| vec_i.project());
 
             self.draw_triangle(&projected_vec0, &projected_vec1, &projected_vec2, sym, color);
         }
