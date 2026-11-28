@@ -4,6 +4,8 @@ use crate::{Color::{self, RGB}, Mesh, Vec3};
 
 pub struct STL {}
 
+
+
 impl STL
 {
     pub fn from_stl(path: &Path) -> Mesh
@@ -76,14 +78,13 @@ impl STL
         }
 
         
-        let random_hasher = RandomState::new().build_hasher();
         let symbols = ".'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$".chars().collect::<Vec<char>>();
 
         Mesh {
             vertices,
             triangles,
-            colors: (0..triangle_size).map(|_| RGB((random_hasher.finish()%255) as u8, (random_hasher.finish()%255) as u8, (random_hasher.finish()%255) as u8)).collect(),
-            symbols: (0..triangle_size).map(|_| symbols[(random_hasher.finish()%symbols.len() as u64) as usize]).collect(),
+            colors: (0..triangle_size).map(|_| Color::BrightRed).collect(),
+            symbols: (0..triangle_size).map(|_| symbols[random(symbols.len() as u8) as usize]).collect(),
 
             translation: [0.0; 3],
             rotation: [0.0; 3],
@@ -91,4 +92,10 @@ impl STL
         }
         
     }
+}
+
+
+pub fn random(ceiling: u8) -> u8
+{
+    (RandomState::new().build_hasher().finish()%ceiling as u64) as u8
 }
