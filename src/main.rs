@@ -1,7 +1,10 @@
-use std::{cell::{Ref, RefCell}, f32::consts::PI, io::Write, rc::Rc, sync::{LazyLock, Mutex}, time::{Duration, Instant}};
+mod stl;
+
+use std::{cell::{Ref, RefCell}, f32::consts::PI, fmt::Display, hash::{Hash, Hasher}, io::Write, path::Path, rc::Rc, sync::{LazyLock, Mutex}, time::{Duration, Instant}};
+use crate::stl::STL;
 
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[allow(unused)]
 enum Color
 {
@@ -91,11 +94,40 @@ impl Vec2
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Vec3 { x: f32, y: f32, z: f32}
+
+impl Display for Vec3
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Vec3({}, {}, {})", self.x, self.y, self.z)
+    }
+}
+
+impl PartialEq<Vec3> for Vec3
+{
+    fn eq(&self, other: &Vec3) -> bool
+    {
+        self.x == other.x && self.y == other.y && self.z == other.z
+    }
+}
+
+impl Eq for Vec3 {}
+
+impl Hash for Vec3
+{
+   fn hash<H: Hasher>(&self, state: &mut H) {
+        self.to_string().hash(state);
+    }
+}
 
 impl Vec3
 {
+    fn difference(&self, vec1: &Vec3) -> Vec3
+    {
+        Vec3 { x: self.x - vec1.x, y: self.y - vec1.y, z: self.z - vec1.z }
+    }
+
     fn rotate_x(&self, rad: f32) -> Vec3
     {
         let cos = rad.cos();
@@ -147,6 +179,8 @@ impl Vec3
 }
 
 type Triangle = [usize; 3];
+
+#[derive(Debug)]
 struct Mesh
 {
     vertices: Vec<Vec3>,
@@ -157,6 +191,46 @@ struct Mesh
     translation: [f32; 3],
     rotation: [f32; 3],
     scale: [f32; 3]
+}
+
+impl Mesh
+{
+    //I hate linear algebra
+
+    // fn calculate_normals(&mut self)
+    // {
+    //     for triangle_idx in 0..self.triangles.len()
+    //     {
+    //         let triangle = self.triangles[triangle_idx];
+
+    //         let projected_points = triangle.map(|idx| self.vertices[idx]);
+
+    //         let mut centroid = Vec2 { x: 0.0, y: 0.0 };
+            
+    //         for projected_point in projected_points.iter()
+    //         {
+    //             centroid.x += projected_point.x; centroid.y += projected_point.y;
+    //         }
+
+    //         let size = projected_points.len() as f32;
+
+    //         centroid.x/=size; centroid.y/=size;
+
+    //         let angles = projected_points.map(|point| f32::atan2(point.x - centroid.x, point.y - centroid.y)).map(|angle| if angle < 0.0 { angle + 2.0*PI } else { angle} );
+
+            
+    //         let mut join: Vec<(usize, f32)> = triangle.iter().map(|a| *a).zip(angles).collect::<Vec<(usize, f32)>>();
+
+    //         join.sort_by(|a,b| a.1.total_cmp(&b.1));
+
+    //         println!("{:?} -> {:?}", triangle, join);
+
+    //         for vertice_idx in 0..3
+    //         {
+    //            self.triangles[triangle_idx][vertice_idx] = join[vertice_idx].0;
+    //         }
+    //     }
+    
 }
 
 struct Renderer
@@ -442,7 +516,7 @@ const CAMERA_POS: Vec3 = Vec3 { x: 0.0, y: 0.0, z: 1.0};
 
 fn main() {
     
-    let main_cube: Mesh = Mesh {
+    let mut main_cube: Mesh = Mesh {
         vertices: [
             Vec3 { x: -1.0, y: -1.0, z: -1.0},
             Vec3 { x: -1.0, y: 1.0, z: -1.0},
@@ -477,7 +551,8 @@ fn main() {
         rotation: [0.0, 0.0, 0.0],
         scale: [1.0, 1.0, 1.0]
     };
-    let main_pyramid = Mesh {
+
+    let mut main_pyramid = Mesh {
         vertices: [
             Vec3 { x: -1.0, y: 1.0, z: -1.0 },
             Vec3 { x: 1.0, y: 1.0, z: -1.0},
@@ -503,16 +578,27 @@ fn main() {
         rotation: [0.0; 3],
         scale: [1.0; 3]
     };
+
+    let import = STL::from_stl(&Path::new("./output.txt"));
+    
+    println!{"{:?}", main_pyramid.triangles}
+    
+    
+    let mut renderer = Renderer::new();
+    
+    // let cube_idx = renderer.add_mesh(main_cube);
+    // let pyramid_idx = renderer.add_mesh(main_pyramid);
+    // let import
+    
+    let import_idx = renderer.add_mesh(import);
+
+    static FULL_ROTATION: f32 = PI*2.0;
+    
     
     print!("\x1b[2J\x1b[3J\x1b[?25l"); //clears screen
     std::io::stdout().flush().unwrap();
     
-    let mut renderer = Renderer::new();
     
-    let cube_idx = renderer.add_mesh(main_cube);
-    let pyramid_idx = renderer.add_mesh(main_pyramid);
-    
-    static FULL_ROTATION: f32 = PI*2.0;
 
     loop
     {
@@ -527,9 +613,9 @@ fn main() {
         renderer.render();
         renderer.flush_buffer();
         
-        let mut cube = renderer.meshes[cube_idx].borrow_mut();
-        let mut pyramid = renderer.meshes[pyramid_idx].borrow_mut();
-
+        let mut cube = renderer.meshes[import_idx].borrow_mut();
+        // let mut pyramid = renderer.meshes[pyramid_idx].borrow_mut();
+        // let mut import_mesh = 
 
         let angle_update = PI/8.0 * delta;
 
@@ -539,7 +625,7 @@ fn main() {
         
         // pyramid.rotation[0] = (pyramid.rotation[0] + angle_update)%FULL_ROTATION;
         // pyramid.rotation[1] = (pyramid.rotation[1] + angle_update)%FULL_ROTATION;
-        pyramid.rotation[0] = (pyramid.rotation[0] + 2.0*angle_update)%FULL_ROTATION;
+        // pyramid.rotation[0] = (pyramid.rotation[0] + 2.0*angle_update)%FULL_ROTATION;
         // cube.rotation[1] += PI/8.0*delta;
         // cube.rotation[2] += PI/8.0*delta;
 
